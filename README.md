@@ -22,14 +22,44 @@ Self-hosted n8n for **AI-powered lead qualification** (Gmail → OpenAI → Goog
 
 ---
 
-## Option A — Run with npm (recommended if Docker fails)
+## Option A — Run with npm / global n8n (recommended if Docker fails)
 
-From this folder:
+On Windows, **do not** rely on a local `node_modules` install of n8n on the `F:` drive — it often fails with `ENOTEMPTY`. Install n8n **once globally**, then start from this folder.
+
+### 1. Fix PowerShell blocking `npm` (optional)
+
+Either always use `npm.cmd`, or allow scripts for your user:
 
 ```powershell
-cd F:\AI-automation\n8n-automation
-npm install
-npm start
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+### 2. Clean a broken install (if you hit `ENOTEMPTY`)
+
+Close any running Node/npm windows, then in **Command Prompt** (`cmd.exe`, not PowerShell):
+
+```bat
+cd /d F:\AI-automation\n8n-automation
+rmdir /s /q node_modules
+```
+
+If `rmdir` fails, reboot and delete `node_modules` again (antivirus/OneDrive can lock files).
+
+### 3. Install n8n globally (once)
+
+```bat
+npm.cmd install -g n8n@1.123.71
+```
+
+Peer-dependency warnings are normal — wait until it finishes with no `npm error`.
+
+### 4. Start n8n
+
+Double-click `start-n8n-local.bat`, or:
+
+```bat
+cd /d F:\AI-automation\n8n-automation
+start-n8n-local.bat
 ```
 
 Then open: **http://localhost:5678**
@@ -38,13 +68,7 @@ Stop with `Ctrl+C`.
 
 Data is stored under `./.n8n` in this project (persistent across restarts).
 
-### Useful scripts
-
-| Command | What it does |
-|---------|----------------|
-| `npm start` | Start n8n on port 5678 |
-| `npm run start:tunnel` | Same + n8n tunnel (useful for public webhooks) |
-
+> **PowerShell tip:** If `npm` fails with “running scripts is disabled”, use `npm.cmd` (as above).
 ---
 
 ## Option B — Run with Docker Compose
