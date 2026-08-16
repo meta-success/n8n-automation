@@ -1,0 +1,303 @@
+{
+  "name": "AI Lead Qualification - Auto Inbox",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "q": "in:inbox is:unread -from:me -category:promotions -category:social -category:forums"
+        },
+        "options": {}
+      },
+      "id": "b1000001-0001-4001-8001-000000000001",
+      "name": "Gmail Trigger - New Unread",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300],
+      "notesInFlow": true,
+      "notes": "No manual labels. Watches unread inbox mail (skips promotions/social). Marks as read after processing so it will not re-run."
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nif (!Array.isArray(staticData.processedMessageIds)) {\n  staticData.processedMessageIds = [];\n}\n\nfunction extractEmail(value) {\n  if (!value) return '';\n  if (typeof value === 'string') {\n    const m = value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i);\n    return (m ? m[0] : value).trim();\n  }\n  if (Array.isArray(value)) return extractEmail(value[0]);\n  if (typeof value === 'object') {\n    return extractEmail(value.address || value.email || value.value || value.text || '');\n  }\n  return String(value);\n}\n\nfunction extractBody(item) {\n  let text = item.text || item.textPlain || item.snippet || '';\n  if (typeof text === 'object') text = text.plain || text.html || '';\n  text = String(text || '').trim();\n  if (text) return text;\n  let html = item.html || item.textAsHtml || '';\n  if (typeof html === 'object') html = html.data || '';\n  return String(html || '')\n    .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')\n    .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')\n    .replace(/<[^>]+>/g, ' ')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nconst item = $input.first().json;\nconst messageId = item.id || item.messageId;\nif (!messageId) throw new Error('Missing Gmail message id');\nif (staticData.processedMessageIds.includes(messageId)) return [];\nstaticData.processedMessageIds.push(messageId);\nif (staticData.processedMessageIds.length > 500) {\n  staticData.processedMessageIds = staticData.processedMessageIds.slice(-500);\n}\n\nconst subject = item.subject || item.Subject || '';\nconst replyTo = extractEmail(item.replyTo || item.from || item.From || '');\nconst fromDisplay = typeof (item.from || item.From) === 'string' ? (item.from || item.From) : replyTo;\nconst emailBody = extractBody(item);\nif (!emailBody) throw new Error('Email body is empty');\n\nreturn [{\n  json: {\n    messageId,\n    threadId: item.threadId,\n    subject,\n    from: fromDisplay,\n    replyTo,\n    emailBody,\n    receivedAt: item.date || item.internalDate || new Date().toISOString()\n  }\n}];"
+      },
+      "id": "b1000001-0001-4001-8001-000000000002",
+      "name": "Idempotency + Prepare Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a lead qualification assistant for a senior AI Engineer (ML, LLM apps, AI Agents, RAG, Automation, Full-Stack).\n\nReturn ONLY valid JSON (no markdown) with exactly these keys:\n{\n  \"isProjectInquiry\": true,\n  \"projectType\": \"AI Agent | Automation | RAG System | Web App | Other | Unknown\",\n  \"budgetRange\": \"$1000-$3000 or Unknown\",\n  \"timeline\": \"1 month or Unknown\",\n  \"keyRequirements\": \"short summary\",\n  \"fitScore\": 1,\n  \"leadQuality\": \"High\"\n}\n\nisProjectInquiry = true only if the email is asking about hiring/building a software/AI/automation project.\nfalse for newsletters, OTP, receipts, personal chat, social notifications.\n\nfitScore 1-10 for AI/automation fit:\n9-10 clear AI/RAG/agent/automation with budget/timeline\n7-8 strong fit, some details missing\n4-6 vague/partial\n1-3 poor fit\n\nleadQuality: High if fitScore>=7, Medium if 4-6, Low if <=3.\nAlways fill every field."
+            },
+            {
+              "role": "user",
+              "content": "=Classify and qualify this email. JSON only.\n\nFrom: {{ $json.replyTo }}\nSubject: {{ $json.subject }}\n\nBody:\n{{ $json.emailBody }}"
+            }
+          ]
+        },
+        "simplify": false,
+        "jsonOutput": true,
+        "options": {
+          "temperature": 0.1,
+          "maxTokens": 800
+        }
+      },
+      "id": "b1000001-0001-4001-8001-000000000003",
+      "name": "OpenAI - Detect + Qualify",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [520, 300],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const email = $('Idempotency + Prepare Email').first().json;\nconst aiItem = $input.first().json;\n\nfunction tryParseJson(value) {\n  if (value == null) return null;\n  if (typeof value === 'object' && !Array.isArray(value)) {\n    if (value.projectType != null || value.fitScore != null || value.isProjectInquiry != null) return value;\n    if (typeof value.text === 'string') return tryParseJson(value.text);\n    if (Array.isArray(value.content)) {\n      const joined = value.content.map((p) => (typeof p === 'string' ? p : p?.text || '')).join('\\n');\n      return tryParseJson(joined);\n    }\n    if (typeof value.content === 'string') return tryParseJson(value.content);\n    return value;\n  }\n  if (typeof value !== 'string') return null;\n  let raw = value.trim().replace(/^```json\\s*/i, '').replace(/^```\\s*/i, '').replace(/```$/i, '').trim();\n  try { return JSON.parse(raw); } catch (e) {}\n  const match = raw.match(/\\{[\\s\\S]*\\}/);\n  if (match) { try { return JSON.parse(match[0]); } catch (e) {} }\n  return null;\n}\n\nlet parsed =\n  tryParseJson(aiItem.message?.content) ||\n  tryParseJson(aiItem.message) ||\n  tryParseJson(aiItem.choices?.[0]?.message?.content) ||\n  tryParseJson(aiItem.content) ||\n  tryParseJson(aiItem.output) ||\n  tryParseJson(aiItem.text) ||\n  tryParseJson(aiItem) ||\n  {};\n\nconst isProjectInquiry = parsed.isProjectInquiry === true || parsed.isProjectInquiry === 'true';\nconst fitScore = Math.max(0, Math.min(10, Number(parsed.fitScore) || 0));\nlet leadQuality = parsed.leadQuality;\nif (!leadQuality) {\n  leadQuality = fitScore >= 7 ? 'High' : fitScore >= 4 ? 'Medium' : 'Low';\n}\n\nreturn [{\n  json: {\n    messageId: email.messageId,\n    threadId: email.threadId,\n    from: email.from,\n    replyTo: email.replyTo || email.from,\n    subject: email.subject,\n    emailBody: email.emailBody,\n    timestamp: new Date().toISOString(),\n    isProjectInquiry,\n    projectType: parsed.projectType || 'Unknown',\n    budgetRange: parsed.budgetRange || 'Unknown',\n    timeline: parsed.timeline || 'Unknown',\n    keyRequirements: parsed.keyRequirements || 'Unable to extract requirements',\n    fitScore,\n    leadQuality,\n    aiFailed: false\n  }\n}];"
+      },
+      "id": "b1000001-0001-4001-8001-000000000004",
+      "name": "Parse AI JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "const email = $('Idempotency + Prepare Email').first().json;\nconst err = $input.first().json;\nreturn [{\n  json: {\n    messageId: email.messageId,\n    threadId: email.threadId,\n    from: email.from,\n    replyTo: email.replyTo || email.from,\n    subject: email.subject,\n    emailBody: email.emailBody,\n    timestamp: new Date().toISOString(),\n    isProjectInquiry: false,\n    projectType: 'AI Error',\n    budgetRange: 'Unknown',\n    timeline: 'Unknown',\n    keyRequirements: `OpenAI failed: ${err.message || err.error?.message || 'error'}`,\n    fitScore: 0,\n    leadQuality: 'Error',\n    aiFailed: true\n  }\n}];"
+      },
+      "id": "b1000001-0001-4001-8001-000000000005",
+      "name": "Log AI Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 420]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-project",
+              "leftValue": "={{ $json.isProjectInquiry === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b1000001-0001-4001-8001-000000000006",
+      "name": "IF Project Inquiry",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1020, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.timestamp }}",
+            "Project Type": "={{ $json.projectType }}",
+            "Budget": "={{ $json.budgetRange }}",
+            "Fit Score": "={{ $json.fitScore }}",
+            "Lead Quality": "={{ $json.leadQuality }}",
+            "Email Subject": "={{ $json.subject }}",
+            "Summary": "={{ $json.keyRequirements }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            { "id": "Timestamp", "displayName": "Timestamp", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Project Type", "displayName": "Project Type", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Budget", "displayName": "Budget", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Fit Score", "displayName": "Fit Score", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Lead Quality", "displayName": "Lead Quality", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Email Subject", "displayName": "Email Subject", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Summary", "displayName": "Summary", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1000001-0001-4001-8001-000000000007",
+      "name": "Append to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1260, 180],
+      "notesInFlow": true,
+      "notes": "Replace YOUR_GOOGLE_SHEET_ID with your spreadsheet ID."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fit-high",
+              "leftValue": "={{ Number($json.fitScore) }}",
+              "rightValue": 7,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b1000001-0001-4001-8001-000000000008",
+      "name": "IF Fit Score >= 7",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1500, 180]
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "=Re: {{ $json.subject }}",
+        "emailType": "text",
+        "message": "=Hi,\n\nThank you for reaching out about your project. After reviewing your inquiry, this looks like a strong fit for my background in AI agents, LLM applications, RAG systems, and automation.\n\nI'd be glad to discuss next steps. A few details that would help me prepare:\n- Project Type: {{ $json.projectType }}\n- Timeline: {{ $json.timeline }}\n- Budget Range: {{ $json.budgetRange }}\n\nKey requirements I noted:\n{{ $json.keyRequirements }}\n\nWould you be open to a short discovery call this week?\n\nBest regards",
+        "options": {
+          "threadId": "={{ $json.threadId }}",
+          "sendTo": "={{ $json.replyTo }}"
+        }
+      },
+      "id": "b1000001-0001-4001-8001-000000000009",
+      "name": "Gmail Draft - High Fit Reply",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1740, 80],
+      "notesInFlow": true,
+      "notes": "Creates a draft only (does NOT send). Review in Gmail Drafts, then send manually."
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "=Re: {{ $json.subject }}",
+        "emailType": "text",
+        "message": "=Hi,\n\nThank you for your message. I've received your inquiry and will review fit/capacity shortly.\n\nBest regards",
+        "options": {
+          "threadId": "={{ $json.threadId }}",
+          "sendTo": "={{ $json.replyTo }}"
+        }
+      },
+      "id": "b1000001-0001-4001-8001-000000000010",
+      "name": "Gmail Draft - Low Fit Holding",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1740, 280],
+      "notesInFlow": true,
+      "notes": "Creates a draft only (does NOT auto-send) when fit is low — safer than auto-replying to bad leads."
+    },
+    {
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{ $('Idempotency + Prepare Email').first().json.messageId }}"
+      },
+      "id": "b1000001-0001-4001-8001-000000000011",
+      "name": "Mark as Read",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [2000, 300],
+      "notesInFlow": true,
+      "notes": "Replaces manual labels. Unread trigger + mark as read = no reprocessing."
+    }
+  ],
+  "connections": {
+    "Gmail Trigger - New Unread": {
+      "main": [[{ "node": "Idempotency + Prepare Email", "type": "main", "index": 0 }]]
+    },
+    "Idempotency + Prepare Email": {
+      "main": [[{ "node": "OpenAI - Detect + Qualify", "type": "main", "index": 0 }]]
+    },
+    "OpenAI - Detect + Qualify": {
+      "main": [
+        [{ "node": "Parse AI JSON", "type": "main", "index": 0 }],
+        [{ "node": "Log AI Failure", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse AI JSON": {
+      "main": [[{ "node": "IF Project Inquiry", "type": "main", "index": 0 }]]
+    },
+    "Log AI Failure": {
+      "main": [[{ "node": "Mark as Read", "type": "main", "index": 0 }]]
+    },
+    "IF Project Inquiry": {
+      "main": [
+        [{ "node": "Append to Google Sheets", "type": "main", "index": 0 }],
+        [{ "node": "Mark as Read", "type": "main", "index": 0 }]
+      ]
+    },
+    "Append to Google Sheets": {
+      "main": [[{ "node": "IF Fit Score >= 7", "type": "main", "index": 0 }]]
+    },
+    "IF Fit Score >= 7": {
+      "main": [
+        [{ "node": "Gmail Draft - High Fit Reply", "type": "main", "index": 0 }],
+        [{ "node": "Gmail Draft - Low Fit Holding", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gmail Draft - High Fit Reply": {
+      "main": [[{ "node": "Mark as Read", "type": "main", "index": 0 }]]
+    },
+    "Gmail Draft - Low Fit Holding": {
+      "main": [[{ "node": "Mark as Read", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Toronto",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "pinData": {},
+  "tags": [
+    { "name": "lead-qualification" },
+    { "name": "auto-inbox" }
+  ]
+}
