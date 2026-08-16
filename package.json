@@ -1,0 +1,19 @@
+{
+  "name": "n8n-automation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local n8n for AI lead qualification (Gmail → OpenAI → Sheets)",
+  "scripts": {
+    "start": "cross-env N8N_PORT=5678 GENERIC_TIMEZONE=America/Toronto TZ=America/Toronto N8N_USER_FOLDER=.n8n n8n start",
+    "start:tunnel": "cross-env N8N_PORT=5678 GENERIC_TIMEZONE=America/Toronto TZ=America/Toronto N8N_USER_FOLDER=.n8n n8n start --tunnel"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "n8n": "^1.100.1"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3"
+  }
+}

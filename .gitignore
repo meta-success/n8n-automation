@@ -2,7 +2,6 @@ node_modules/
 .env
 *.log
 .DS_Store
+.n8n/
 local-files/*
 !local-files/.gitkeep
-workflows/*
-!workflows/.gitkeep
