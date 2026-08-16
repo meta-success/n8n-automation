@@ -213,8 +213,12 @@
       "parameters": {
         "resource": "message",
         "operation": "removeLabels",
-        "messageId": "={{ $('Idempotency + Prepare Email').item.json.messageId }}",
-        "labelIds": ["Project-Inquiry"]
+        "messageId": "={{ $('Idempotency + Prepare Email').first().json.messageId }}",
+        "labelIds": {
+          "__rl": true,
+          "mode": "list",
+          "value": []
+        }
       },
       "id": "a1000001-0001-4001-8001-000000000012",
       "name": "Remove Project-Inquiry Label",
@@ -228,8 +232,12 @@
       "parameters": {
         "resource": "message",
         "operation": "addLabels",
-        "messageId": "={{ $('Idempotency + Prepare Email').item.json.messageId }}",
-        "labelIds": ["Lead-Processed"]
+        "messageId": "={{ $('Idempotency + Prepare Email').first().json.messageId }}",
+        "labelIds": {
+          "__rl": true,
+          "mode": "list",
+          "value": []
+        }
       },
       "id": "a1000001-0001-4001-8001-000000000013",
       "name": "Add Lead-Processed Label",
