@@ -9,111 +9,91 @@ Self-hosted n8n for **AI-powered lead qualification** (Gmail → OpenAI → Goog
 | Workflow | `workflows/ai-lead-qualification.json` |
 | Full setup (Gmail / Sheets / OpenAI) | [SETUP.md](./SETUP.md) |
 
----
-
-## Prerequisites
-
-- **Node.js 20+** (required for the no-Docker method below)
-- **Docker Desktop** (optional — only if you prefer containers)
-- OpenAI API key, Gmail, and Google Sheets (for the lead workflow)
-
-> **Docker Desktop shows “Virtualization support not detected”?**  
-> Use **Option A (npm)** below to run n8n immediately, then fix Docker using [Fix Docker virtualization](#fix-docker-virtualization-windows).
+**Recommended on Windows: use Docker** (skip the multi-hour `npm install`).
 
 ---
 
-## Option A — Run with npm / global n8n (recommended if Docker fails)
+## Run with Docker (recommended)
 
-On Windows, **do not** rely on a local `node_modules` install of n8n on the `F:` drive — it often fails with `ENOTEMPTY`. Install n8n **once globally**, then start from this folder.
+No Node/`npm` install required. Docker pulls a ready-made n8n image.
 
-### 1. Fix PowerShell blocking `npm` (optional)
+### 1. Start Docker Desktop
 
-Either always use `npm.cmd`, or allow scripts for your user:
+1. Open **Docker Desktop**
+2. Wait until bottom-left says **Engine running** (green)
+
+If you see **Virtualization support not detected** / **Engine stopped**:
+
+1. Reboot → BIOS → enable **Intel VT-x** / **AMD-V** / **SVM** → save
+2. Admin PowerShell:
 
 ```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+wsl --install
+wsl --update
+wsl --set-default-version 2
 ```
 
-### 2. Clean a broken install (if you hit `ENOTEMPTY`)
+3. Reboot if asked  
+4. Docker Desktop → **Settings → General** → enable **Use the WSL 2 based engine** → Apply & Restart  
+5. Confirm `wsl -l -v` shows `docker-desktop` as **Running** when Desktop is open
 
-Close any running Node/npm windows, then in **Command Prompt** (`cmd.exe`, not PowerShell):
+### 2. Start n8n
 
-```bat
-cd /d F:\AI-automation\n8n-automation
-rmdir /s /q node_modules
+```powershell
+cd F:\AI-automation\n8n-automation
+.\start-n8n-docker.bat
 ```
 
-If `rmdir` fails, reboot and delete `node_modules` again (antivirus/OneDrive can lock files).
-
-### 3. Install n8n globally (once)
-
-```bat
-npm.cmd install -g n8n@1.123.71
-```
-
-Peer-dependency warnings are normal — wait until it finishes with no `npm error`.
-
-### 4. Start n8n
-
-Double-click `start-n8n-local.bat`, or:
-
-```bat
-cd /d F:\AI-automation\n8n-automation
-start-n8n-local.bat
-```
-
-Then open: **http://localhost:5678**
-
-Stop with `Ctrl+C`.
-
-Data is stored under `./.n8n` in this project (persistent across restarts).
-
-> **PowerShell tip:** If `npm` fails with “running scripts is disabled”, use `npm.cmd` (as above).
----
-
-## Option B — Run with Docker Compose
-
-Only when Docker Desktop shows **Engine running** (green).
+Or:
 
 ```powershell
 cd F:\AI-automation\n8n-automation
 docker compose up -d
 ```
 
-Open http://localhost:5678  
-Stop: `docker compose down`
+Open **http://localhost:5678**
 
-### Or plain `docker run`
+| Command | Purpose |
+|---------|---------|
+| `docker compose logs -f` | View logs |
+| `docker compose down` | Stop |
+| `docker compose pull && docker compose up -d` | Update n8n |
+
+One-liner alternative:
 
 ```powershell
-docker run -d --name n8n-automation -p 5678:5678 -e GENERIC_TIMEZONE="America/Toronto" -e TZ="America/Toronto" -e N8N_HOST="localhost" -e N8N_PORT=5678 -e N8N_PROTOCOL="http" -e WEBHOOK_URL="http://localhost:5678/" -e N8N_ENCRYPTION_KEY="change-me-to-a-long-random-string-32chars" -v n8n_data:/home/node/.n8n n8nio/n8n:latest
+docker run -d --name n8n-automation -p 5678:5678 -e GENERIC_TIMEZONE="America/Toronto" -e TZ="America/Toronto" -e WEBHOOK_URL="http://localhost:5678/" -v n8n_data:/home/node/.n8n n8nio/n8n:latest
 ```
 
-Windows helper: `start-n8n.bat`
+If the name already exists: `docker rm -f n8n-automation` then run again.
+
+### 3. Import the workflow
+
+1. Create owner account in the UI  
+2. **Workflows → Import from File** → `workflows\ai-lead-qualification.json`  
+3. Follow [SETUP.md](./SETUP.md) for Gmail / Sheets / OpenAI  
 
 ---
 
 ## After n8n is running
 
-1. Create your owner account in the UI (first visit)
-2. **Workflows → Import from File** → select `workflows/ai-lead-qualification.json`
-3. Connect credentials (OpenAI, Gmail OAuth2, Google Sheets OAuth2)
+1. Create your owner account (first visit)
+2. Import `workflows/ai-lead-qualification.json`
+3. Connect OpenAI, Gmail OAuth2, Google Sheets OAuth2
 4. Set your Google Sheet ID and re-select Gmail labels
-5. Follow [SETUP.md](./SETUP.md) for Sheets headers, Gmail labels, prompts, and testing
+5. See [SETUP.md](./SETUP.md) for testing
 
 ---
 
 ## Fix Docker virtualization (Windows)
 
-Docker Desktop needs **CPU virtualization + WSL 2**. Your PC may already have a hypervisor running even when Docker still fails — finish these steps:
+Docker Desktop needs **CPU virtualization + WSL 2**.
 
-### 1. Enable virtualization in BIOS/UEFI
+### 1. BIOS/UEFI
 
-1. Reboot → enter BIOS/UEFI (`F2`, `Del`, `Esc`, or vendor key)
-2. Enable **Intel VT-x** / **AMD-V** / **SVM Mode**
-3. Save & exit
+Enable **Intel VT-x** / **AMD-V** / **SVM Mode**, save, reboot.
 
-### 2. Turn on Windows features (Admin PowerShell)
+### 2. Admin PowerShell
 
 ```powershell
 dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
@@ -130,17 +110,29 @@ wsl --update
 
 ### 3. Docker Desktop settings
 
-1. Open Docker Desktop → **Settings → General**
-2. Enable **Use the WSL 2 based engine**
-3. **Settings → Resources → WSL Integration** → enable your distro
-4. Apply & Restart
+1. **Settings → General** → **Use the WSL 2 based engine**
+2. **Settings → Resources → WSL Integration** → enable your distro
+3. Apply & Restart
 
-### 4. If it still fails
+### 4. Still failing?
 
-- Install/update [WSL2](https://aka.ms/wsl2kernel) and reboot
-- In Windows Features, enable **Virtual Machine Platform**
-- Run Docker Desktop **as Administrator** once
-- Corporate PC: IT may block virtualization — use **Option A (npm)** instead
+- Update WSL and reboot
+- Run Docker Desktop as Administrator once
+- Corporate PC: IT may block virtualization — then you cannot use Docker until that is unlocked
+
+---
+
+## npm method (not recommended — can take hours)
+
+Only if Docker cannot run. Prefer Docker.
+
+```powershell
+cd F:\AI-automation\n8n-automation
+.\start-n8n-local.bat
+```
+
+That requires a completed global install: `npm.cmd install -g n8n@1.123.71`  
+In PowerShell, run bats as `.\start-n8n-local.bat` (not `start-n8n-local.bat`).
 
 ---
 
@@ -148,12 +140,12 @@ wsl --update
 
 ```text
 n8n-automation/
-├── README.md                 ← you are here
-├── SETUP.md                  ← Gmail / Sheets / OpenAI / testing
-├── package.json              ← npm start (no Docker)
+├── README.md
+├── SETUP.md
 ├── docker-compose.yml
-├── start-n8n.bat
-├── .env / .env.example
+├── start-n8n-docker.bat      ← use this
+├── start-n8n-local.bat       ← npm fallback
+├── start-n8n.bat             ← docker run helper
 └── workflows/
     └── ai-lead-qualification.json
 ```
@@ -164,7 +156,8 @@ n8n-automation/
 
 | Issue | Fix |
 |-------|-----|
-| Port 5678 in use | Stop other n8n/Docker, or set `"start": "n8n start --port 5679"` |
-| Docker “Engine stopped” | Fix virtualization (above) or use `npm start` |
-| Lost workflows after restart | npm: check `./.n8n`; Docker: keep volume `n8n_data` |
-| Import / credential errors | See [SETUP.md](./SETUP.md) § Troubleshooting |
+| Engine stopped / virtualization | Fix section above, then reopen Docker Desktop |
+| Port 5678 in use | `docker rm -f n8n-automation` or change port in `.env` |
+| Lost data after recreate | Keep volume `n8n_data` (`docker volume ls`) |
+| Import / credential errors | See [SETUP.md](./SETUP.md) |
+| PowerShell won’t run `.bat` | Use `.\start-n8n-docker.bat` |
